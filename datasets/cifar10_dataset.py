@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset
 from torchvision.datasets import CIFAR10
+from PIL import Image
 
 class FilteredCIFAR10(Dataset):
     def __init__(self, root="data", train=True, transform=None, num_classes=10):
@@ -19,6 +20,8 @@ class FilteredCIFAR10(Dataset):
     def __getitem__(self, idx):
         img = self.data[idx]
         label = self.labels[idx]
+        img = Image.fromarray(img)
         if self.transform:
             img = self.transform(img)
         return img, label
+
