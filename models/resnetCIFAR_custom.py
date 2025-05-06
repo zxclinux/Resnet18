@@ -7,13 +7,15 @@ class ResNet18Custom(nn.Module):
         weights = ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         self.model = resnet18(weights=weights)
 
-        if freeze_backbone:
-            for param in self.model.parameters():
-                param.requires_grad = False
-            for param in self.model.fc.parameters():
-                param.requires_grad = True
-
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+
+        if freeze_backbone:
+            self.freeze_backbone(True)
 
     def forward(self, x):
         return self.model(x)
+
+    def freeze_backbone(self, freeze: bool = True):
+        for name, param in self.model.named_parameters():
+            if not name.startswith("fc."):
+                param.requires_grad = not freeze

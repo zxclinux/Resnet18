@@ -8,7 +8,7 @@ import torch.optim as optim
 import pandas as pd
 from tqdm import tqdm
 
-def train_and_evaluate(epochs=100, num_classes=10):
+def train_and_evaluate(epochs=30, num_classes=10, freeze_epochs=10):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Використовується: {device}")
 
@@ -16,37 +16,40 @@ def train_and_evaluate(epochs=100, num_classes=10):
         transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],  # ImageNet mean
-            std=[0.229, 0.224, 0.225]  # ImageNet std
-        )
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
 
     transform_train = transforms.Compose([
         transforms.RandomResizedCrop(224),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],  # ImageNet mean
-            std=[0.229, 0.224, 0.225]
-        )
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
 
-    model = ResNet18Custom(num_classes=num_classes, pretrained=True, freeze_backbone=False).to(device)
+    model = ResNet18Custom(num_classes=num_classes, pretrained=True, freeze_backbone=True).to(device)
+
     train_dataset = FilteredCIFAR10(train=True, transform=transform_train, num_classes=num_classes)
     test_dataset = FilteredCIFAR10(train=False, transform=transform_test, num_classes=num_classes)
     train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, factor=0.5, verbose=True)
 
     metrics_per_epoch = []
     total_samples = len(train_dataset)
-    start_time = time.time()
     best_val_acc = 0.0
+    start_time = time.time()
 
     for epoch in range(epochs):
+        if epoch == freeze_epochs:
+            model.freeze_backbone(False)
+            optimizer = optim.Adam(model.parameters(), lr=1e-4)
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, factor=0.5, verbose=True)
+
         model.train()
         running_loss = 0.0
         correct_train = 0
@@ -70,7 +73,7 @@ def train_and_evaluate(epochs=100, num_classes=10):
         train_acc = 100.0 * correct_train / total_train
         fps = total_train / (time.time() - epoch_start)
 
-        # Evaluation
+        # Validation
         model.eval()
         correct = [0] * num_classes
         total = [0] * num_classes
@@ -79,7 +82,7 @@ def train_and_evaluate(epochs=100, num_classes=10):
         val_total = 0
 
         with torch.no_grad():
-            for images, labels in tqdm(test_loader, desc=f"Validation Epoch {epoch + 1}/{epochs}"):
+            for images, labels in test_loader:
                 images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
                 probs = torch.softmax(outputs, dim=1)
@@ -98,7 +101,8 @@ def train_and_evaluate(epochs=100, num_classes=10):
                         correct[true] += 1
 
         val_acc = 100.0 * correct_val_total / val_total
-        print(f"Epoch {epoch + 1}/{epochs}: Train Loss={avg_train_loss:.4f}, Train Acc={train_acc:.2f}%, Val Acc={val_acc:.2f}%, FPS={fps:.2f}")
+        print(f"Epoch {epoch + 1}: Train Loss={avg_train_loss:.4f}, Train Acc={train_acc:.2f}%, Val Acc={val_acc:.2f}%, FPS={fps:.2f}")
+        scheduler.step(val_acc)
 
         # Save best model
         if val_acc > best_val_acc:
@@ -118,5 +122,6 @@ def train_and_evaluate(epochs=100, num_classes=10):
     print(f"🚀 Середній FPS: {overall_fps:.2f} зображень/секунда")
 
     df = pd.DataFrame(metrics_per_epoch)
-    df.to_csv("cifar10_metrics.csv", index=False)
+    df.to_csv("cifar_metrics.csv", index=False)
     return df
+
