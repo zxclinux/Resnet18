@@ -1,5 +1,3 @@
-# performance_test.py
-
 import os
 
 # --- Вимикаємо CUDA та GPU-бібліотеки, щоб працювати лише на CPU
@@ -22,12 +20,13 @@ from torch.utils.data import DataLoader
 import random
 import numpy as np
 
-# Фіксуємо seed для повторюваності (за бажанням)
 seed = 42
 torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from datasets.cifar10_dataset import FilteredCIFAR10
 from models.resnet_CIFAR_18 import ResNet18Custom
 
